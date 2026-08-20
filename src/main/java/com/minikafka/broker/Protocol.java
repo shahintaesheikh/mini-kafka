@@ -104,5 +104,216 @@ public class Protocol{
     /*
     Encode a topic notification
     */
-    public static ByteBuffer encodeTopicNotification(String topic, int partition, byte[] message)
+    public static ByteBuffer encodeTopicNotification(String topic){
+        ByteBuffer buffer = ByteBuffer.allocate(3 + topic.length())
+        
+        buffer.put(TOPIC_NOTIFICATION);
+        buffer.putShort((short) topic.length());
+        buffer.put(topic.getBytes());
+        buffer.flip();
+        return buffer;
+    }
+
+    /*
+    Decoding
+    */
+
+    /*
+    Decoding a fetch response
+    */
+    public static ByteBuffer decodeFetchResponse(ByteBuffer buffer){
+        byte responseType = buffer.get();
+        if (responseType != FETCH_RESPONSE){
+            //response handling
+            if (responseType == ERROR_RESPONSE){
+                //check the length of the actual error in terms of byte messages
+                short errorLength = buffer.getShort();
+                //
+                byte[] errorBytes = new byte[errorLength];
+                //get the bytes
+                buffer.get(errorBytes);
+                String error = new String(errorBytes);
+                //set to 0 array so that you don't get null pointer exception when someone tries to fetch an error log
+                return new FetchResult(new byte[0][], error);
+            }
+            return new FetchResult(new byte[0][], "Invalid response type")
+        }
+
+        int messageCount = buffer.getInt();
+        //defining array of bytes that has capacity of message count
+        byte[][] messages = new byte[messageCount][];
+
+        for (int i = 0; i < messageCount; i++){
+            long offset = buffer.getLong();     //skip offset
+            int messageSize = buffer.getInt();
+            //store message from buffer in messages
+            messages[i] = new byte[messageSize];
+            //read messageSize amount of bytes from buffer and store in messages[i]
+            buffer.get(messages[i])
+        }
+
+        return new FetchResult(messages, null)
+
+    }
+
+    public static ByteBuffer = decodeProduceResponse(ByteBuffer buffer){
+        byte responseType = buffer.get();
+        if(responseType != PRODUCE_RESPONSE){
+            if (responseType == ERROR_RESPONSE){
+                short errorLength = buffer.getShort();
+                byte errorBytes = new byte[errorLength];
+                buffer.get(errorBytes);
+                String error = new String(errorBytes);
+                return new ProduceResult(-1, error)
+            }
+            return new ProduceResult(-1, "Invalid response type")
+        }
+
+        long offset = buffer.getLong();         //skip offset
+        byte status = buffer.get();
+
+        return new ProductResult(offset, status == 0 ? null: "Produce failed")
+    }
+
+    public static ByteBuffer decodeMetadataResponse(ByteBuffer buffer){
+        byte responseType = buffer.get();
+        if(responseType != METADATA_RESPONSE){
+            if(responseType == ERROR_RESPONSE){
+                short errorLength = buffer.getShort();
+                byte errorBytes = new byte[errorLength];
+                buffer.get(errorBytes);
+                String error = new String(errorBytes);
+                return new MetadataResult(new ArrayList<>(), new ArrayList<>(), error);
+            }
+            return new MetadataResult(new ArrayList<>(), new ArrayList<>(), "Invalid response type");
+        }
+
+        //parse broker info
+        int brokerCount = buffer.getInt();
+        List<BrokerInfo> brokers = new ArrayList<>(); 
+
+        for(int i = 0; i < brokerCount; i++){
+            int brokerId = buffer.getInt();
+            short hostLength = buffer.getShort();
+            byte[] hostBytes = new byte[hostLength];
+            buffer.get(hostBytes);
+            String host = new String(hostBytes);
+            int port = buffer.getInt();
+            
+            //add accumulated info to broker info list
+            brokers.add(new BrokerInfo(brokerId, host, port));
+        }
+
+        //parse topic metadata
+        int topicCount = buffer.getInt();
+        List<TopicMetadata> topics = new ArrayList<>();
+
+        for (int i = 0; i < topicCount; i++){
+            short topicLength = broker.getShort();
+            byte[] topicBytes = new byte[topicLength];
+            buffer.get(topicBytes);
+            String topic = new String(topicBytes);
+
+            //define partitions for this topic that we are going to add to topic
+            int partitionCount = buffer.getInt();
+            List<PartitionMetadata> partitions = new ArrayList<>();
+
+            for (int j = 0; j < partitionCount; i++){
+                int partitionId = buffer.getInt();
+                int leaderId = buffer.getInt();
+                
+                int replicaCount = buffer.getInt();
+                List<Integer> replicaIds = new ArrayList<>();
+                for (int k = 0; i < replicaCount; k++{
+                    replicaIds.add(buffer.getInt());
+                })
+
+                partitions.add(new PartitionMetadata(partitionId, leaderId, replicaIds))
+            }
+
+            topics.add(new TopicMetadata(topic, partitions))
+        }
+        
+        return new MetadataResult(brokers, topics, null)
+    }
+
+    /*
+    Result class for produce operations
+    */
+
+    public static class ProduceResult{
+        private final long offset;
+        private final String error;
+
+        public ProduceResult(long offset, String error){
+            this.offset = offset;
+            this.error = error;
+        }
+
+        public long getOffset(){
+            return offset;
+        }
+
+        public String getError(){
+            return error;
+        }
+
+        public boolean isSuccess(){
+            return error == null;
+        }
+    }
+
+    public static class FetchResult{
+        private final byte[][] messages;
+        private final String error;
+
+        public FetchResult(byte[][] messages, String error){
+            this.messages = messages;
+            this.error = error;
+        }
+
+        public byte[][] getMessages(){
+            return messages;
+        }
+
+        public int getMessagesLength(){
+            return messages.length;
+        }
+
+        public String getError(){
+            return error;
+        }
+
+        public boolean isSuccess(){
+            return error == null; 
+        }
+    }
+    
+    public static class MetadataResult{
+        private final List<BrokerInfo> brokers;
+        private final List<TopicMetadata> topics;
+        private final String error;
+
+        public MetadataResult(List<BrokerInfo> brokers, List<TopicMetadata> topics, String error){
+            this.brokers = brokers; 
+            this.topics = topics;
+            this.error = error;
+        }
+
+        public List<BrokerInfo> getBrokers(){
+            return brokers;
+        }
+
+        public List<TopicMetadata> getTopics(){
+            return topics;
+        }
+
+        public String getError(){
+            return error;
+        }
+
+        public boolean isSuccess(){
+            return error==null;
+        }
+    }
 }
