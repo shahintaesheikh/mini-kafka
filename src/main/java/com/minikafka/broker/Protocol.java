@@ -316,4 +316,46 @@ public class Protocol{
             return error==null;
         }
     }
+
+    public static class TopicMetadata{
+        private final String name;
+        private final List<ParitionMetadata> partitions;
+
+        public TopicMetadata(String name, List<PartitionMetadata> partitions){
+            this.name = name;
+            this.paritions = partitions;
+        }
+
+        public String getName(){
+            return name;
+        }
+
+        public List<PartitionMetadata> getPartitions(){
+            return partitions;
+        }
+    }
+
+    public static class PartitionMetadata{
+        private final String name;
+        private final int leader;
+        private final List<Integer> replicas;
+
+        public PartitionMetadata(String name, int leader, List<Integer> replicas){
+            this.name = name;
+            this.leader = leader;
+            this.replicas = replicas;
+        }
+
+        public String getName(){
+            return name;
+        }
+
+        public int getLeader(){
+            return leader;
+        }
+
+        public List<Integer> getReplicas(){
+            return replicas; 
+        }
+    }
 }
