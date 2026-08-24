@@ -1,3 +1,5 @@
+/*Core Protocol Layer: The encoding and decoding functions for how the brokers and clients communicate with each other*/
+
 package com.minikafka.broker;
 
 //wire protocol for how nodes brokers communicate
