@@ -201,4 +201,125 @@ public class Partition{
             lock.writeLock().unlock();
         }
     }
+
+    /*Update an index file with a new offset*/
+    private void updateIndex(long offset, long position){
+        try{
+            //find the current segment
+            if (segments.isEmpty()) return;
+
+            SegmentInfo currSegment = segments.get(segments.size()-1);
+
+            try(RandomAccessFile indexFile = new RandomAccessFile(currSegment.getIndexPath(), "rw");
+                FileChannel indexChannel = indexFile.getChannel()){
+                    //start at end of index file
+                    indexChannel.position(indexChannel.size());
+
+                    //write offset
+                    ByteBuffer buffer = ByteBuffer.allocate(16);
+
+                    buffer.putLong(offset);
+                    buffer.putLong(position);
+                    buffer.flip();
+
+                    indexChannel.write(buffer);
+                    indexChannel.force(true);
+                }
+        } catch (IOException e){
+            LOGGER.log(Level.SEVERE, "Failed to update index for partition " + id, e);
+        }
+    }
+
+    /*Read messages from log starting at offset */
+    public List<byte[]> readMessages(long offset, int maxBytes){
+        //set up read lock
+        lock.readLock().lock()
+        List<byte[]> messages = new ArrayList<>();
+        int bytesRead = 0;
+
+        try{
+            //find the segment that has the offset 
+            SegmentInfo targetSegment = findSegmentForOffset(offset);
+            if (targetSegment == null){
+                return messages;
+            }
+
+            //find file position for offset using indices
+            long position = findPositionForOffset(targetSegment, offset);
+            if (position < 0){
+                return messages;
+            }
+
+            //use channels for reading, same pattern as before
+            try(RandomAccessFile logFile = new RandomAccessFile(targetSegment.getLogPath(),"rw");
+                FileChannel logChannel = logFile.getChannel()){
+                    //same pattern as in other functions
+                    fileChannel.position(position);
+
+                    //read messages until the max bytes is reached
+                    ByteBuffer sizeBuffer = ByteBuffer.allocate(4);
+                    long currOffset = offset;
+
+                    while (bytesRead < maxBytes && logChannel.position() < logChannel.size()){
+                        //read the message size
+                        sizeBuffer.clear();
+                        int sizeRead = logChannel.read(sizeBuffer);
+                        if (sizeRead < 4) break;
+                        //switch to read mode
+                        sizeBuffer.flip();
+                        int messageSize = sizeBuffer.getInt();
+
+                        if (bytesRead + messageSize > maxBytes) break;
+
+                        //write into the message buffer
+                        ByteBuffer messageBuffer = ByteBuffer.allocate(messageSize);
+                        int messageRead = logChannel.read(messageBuffer);
+
+                        if (messageRead < messageSize) {
+                            LOGGER.warning("Incomplete message read at offset " + currOffset);
+                            break;
+                        }
+
+                        messageBuffer.flip();
+
+                        //add message result to messages
+                        byte[] message = new byte[messageSize];
+                        messageBuffer.get(message);
+                        messages.add(message);
+
+                        //update bytesRead
+                        bytesRead += 4;
+                        currentOffset++;
+
+                        //check if we're at the end of current segment
+                        if(logChannel.position() >= logChannel.size() && currentOffset < nextOffset.get()){
+                            //switch index to next segment
+                            int nextSegmentIndex = segments.indexOf(targetSegment) + 1;
+                            if (nextSegmentIndex < segments.size()){
+                                logChannel.close();
+                                logFile.close();
+
+                                targetSegment = segments.get(nextSegmentIndex);
+
+                                RandomAccessFile nextLogFile = new RandomAccessFile(targetSegment.getLogPath(), "r");
+                                FileChannel nextLogChannel = nextLogFile.getChannel();
+
+                                //continue reading
+                                position = 0;
+                                nextLogChannel.position(position);
+                            }
+                        }
+                    }
+
+
+
+                } catch (IOException e) {
+                    LOGGER.log(Level.SEVERE, "Failed to read messages from partition " + id, e);
+                } finally {
+                    lock.readLock().unlock();
+                }
+        }
+
+        return messages;
+    }
 }
