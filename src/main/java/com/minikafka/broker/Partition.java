@@ -322,4 +322,103 @@ public class Partition{
 
         return messages;
     }
+
+    /*find segment giving given offset*/
+    private SegentInfo findSegmentForOffset(long offset){
+        if (segments.isEmpty() || offset >= nextOffset.get()){
+            return null;
+        }
+
+        //binary search to find segment
+        int low = 0;
+        int high = segments.size() - 1;
+
+        while (low <= high){
+            int mid = (low + high)/2;
+            SegmentInfo segment = segments.get(mid);
+
+            if(mid < segments.size()-1){
+                SegmentInfo nextSegment = segments.get(mid+1);
+                if (offset >= segment.getBaseOffset() && offset < nextSegment.getBaseOffset()){
+                    return offset;
+                }
+            //if not within then check if it's the last segment
+            }else{
+                if (offset >= segment.getBaseOffset()){
+                    return segment;
+                }
+            }
+
+            //complete binary search
+            if (offset < segment.getBaseOffset()) {
+                high = mid -1
+            }else{
+                low = mid + 1;
+            }
+        }
+
+        return null;
+    }
+
+    /*find file position for given offset*/
+    private long findPositionForOffset(SegmentInfo segment, long offset){
+        try (RandomAccessFile indexFile = new RandomAccessFile(segment.getIndexPath, "r");
+            FileChannel indexChannel = indexFile.getChannel()){
+                
+                if(indexChannel.size() == 0){
+                    //empty index
+                    return 0;
+                }
+
+                //relative offset within segment
+                long relativeOffset = offset - segment.getBaseOffset();
+
+                //each index entry is 16 bytes (8 for offset, 8 for position)
+                long entryCount = indexChannel.size()/16;
+
+                if (relativeOffset >= entryCount){
+                    //not found in index, use last position
+                    indexChannel.position(indexChannel.size()-16);
+                    ByteBuffer buffer = ByteBuffer.allocate(16);
+                    indexChannel.read(16);
+                    buffer.flip();
+
+                    buffer.getLong();
+                    return buffer.getLong();
+                }
+
+                //read index entry
+                indexChannel.position(relativeOffset*16);
+                ByteBuffer buffer = ByteBuffer.allocate(16);
+                indexChannel.read(buffer);
+                buffer.flip();
+
+                buffer.getLong();
+                return buffer.getLong();
+            } catch (IOException e){
+                LOGGER.log(Level.SEVERE, "Failed to find position for offset " + offset, e);
+                return -1;
+            }
+    }
+
+    public int getId(){
+        return id;
+    }
+
+    public int getLeader(){
+        return leader;
+    }
+
+    public void setLeader(int leader){
+        this.leader = leader;
+    }
+
+    public List<Integer> getFollowers(){
+        return new ArrayList<>(followers);
+    }
+
+    public long getLogEndOffset(){
+        return nextOffset.get();
+    }
+
 }
